@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "objtoolbox"
+version = "0.0.1"
+authors = [
+  { name="Jona Ruof", email="jona.ruof@uni-ulm.de" },
+]
+description = "Advanced utility functions for python objects"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    'numpy>=1.20',
+    'zarr>=2.14.2',
+]
+
+[project.urls]
+"Homepage" = "https://github.com/joruof/objtoolbox"
+"Bug Tracker" = "https://github.com/joruof/objtoolbox/issues"
