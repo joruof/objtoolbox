@@ -1,5 +1,7 @@
 import copy
 
+from objtoolbox import get_obj_dict
+
 
 def merge(dst, src):
     """

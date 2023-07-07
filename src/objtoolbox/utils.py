@@ -20,6 +20,34 @@ def get_value_by_path(obj, path):
     return obj
 
 
+def set_value_by_path(obj, path, value):
+    """
+    This set a value in a given object, where the specific value
+    can be adressed by a path given as either
+
+    "/obj_list/0/sub_obj/value_a" or ["obj_list", 0, "sub_obj", "value_a"].
+    """
+
+    if type(path) == str:
+        path = to_path_list(path)
+
+    if path == []:
+        return
+
+    sub = get_value_by_path(obj, path[:-1])
+
+    p = path[-1]
+
+    if type(p) == str:
+        try:
+            setattr(sub, p, value)
+            return
+        except AttributeError:
+            pass
+
+    sub[p] = value
+
+
 def to_path_list(path):
     """
     This converts from a path string to a path list.
