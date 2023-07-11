@@ -360,6 +360,9 @@ def save(obj, directory, compressor=None):
     ser = Serializer(directory, compressor=compressor)
     rep = ser.serialize(obj)
 
+    if rep is Skip:
+        return
+
     unfinished_path = os.path.join(directory, "unfinished.json")
 
     with open(unfinished_path, "w+") as fd:
