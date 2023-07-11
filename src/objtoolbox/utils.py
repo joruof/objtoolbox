@@ -1,3 +1,14 @@
+class bundle(dict):
+    """
+    A dict, which allows dot notation access.
+    """
+
+    def __init__(self, *args, **kwargs):
+
+        dict.__init__(self, *args, **kwargs)
+        self.__dict__ = self
+
+
 def get_value_by_path(obj, path):
     """
     This obtains a value from a given object, where the specific value
