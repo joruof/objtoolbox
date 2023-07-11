@@ -1,6 +1,6 @@
 import copy
 
-from objtoolbox import get_obj_dict
+from objtoolbox import get_obj_dict, ext_setattr
 
 
 def merge(dst, src):
