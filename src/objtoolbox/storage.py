@@ -23,7 +23,7 @@ from pydoc import locate
 import zarr
 import numpy as np
 
-from objtoolbox import ext_setattr, fqn_type_name
+from objtoolbox import ext_setattr, get_obj_dict, fqn_type_name
 
 
 def patch_zarr_indexing():
@@ -86,15 +86,21 @@ class Serializer:
     Large numpy arrays are automatically referenced and stored externally.
     """
 
-    def __init__(self, path, hide_private=True, compressor=None):
+    def __init__(self,
+                 path,
+                 hide_private=True,
+                 compressor=None,
+                 externalize=True):
 
         self.hide_private = hide_private
         self.compressor = compressor
+        self.externalize = externalize
 
-        self.ext_path = os.path.join(path, "extern")
-        self.array_store = zarr.open(get_chunk_store(self.ext_path))
+        if self.externalize:
+            self.ext_path = os.path.join(path, "extern")
+            self.array_store = zarr.open(get_chunk_store(self.ext_path))
 
-        self.saved_arrays = set()
+        self.used_arrays = set()
 
         self.obj_path = []
 
@@ -112,7 +118,7 @@ class Serializer:
 
         # special treatment for numpy arrays
         if type(obj) == np.ndarray:
-            if obj.size > 25:
+            if obj.size > 25 and self.externalize:
 
                 path = ".".join([str(p) for p in self.obj_path])
                 obj = self.array_store.array(
@@ -127,7 +133,7 @@ class Serializer:
                 elif type(key) == int:
                     parent[key] = obj
 
-                self.saved_arrays.add(path)
+                self.used_arrays.add(path)
                 return {
                     "__class__": "__extern__",
                     "path": path
@@ -141,29 +147,36 @@ class Serializer:
 
         # already saved arrays
         if type(obj) == zarr.core.Array:
+            if self.externalize:
+                path = ".".join([str(p) for p in self.obj_path])
 
-            path = ".".join([str(p) for p in self.obj_path])
+                if (self.array_store.store.path != obj.store.path
+                        or obj.path != path):
 
-            if (self.array_store.store.path != obj.store.path
-                    or obj.path != path):
+                    obj = self.array_store.array(
+                            path,
+                            obj,
+                            chunks=False,
+                            compressor=self.compressor,
+                            overwrite=True)
 
-                obj = self.array_store.array(
-                        path,
-                        obj,
-                        chunks=False,
-                        compressor=self.compressor,
-                        overwrite=True)
+                    if type(key) == str:
+                        ext_setattr(parent, key, obj)
+                    elif type(key) == int:
+                        parent[key] = obj
 
-                if type(key) == str:
-                    ext_setattr(parent, key, obj)
-                elif type(key) == int:
-                    parent[key] = obj
-
-            self.saved_arrays.add(obj.path)
-            return {
-                "__class__": "__extern__",
-                "path": obj.path
-            }
+                self.used_arrays.add(obj.path)
+                return {
+                    "__class__": "__extern__",
+                    "path": obj.path
+                }
+            else:
+                np_obj = np.array(obj)
+                return {
+                    "__class__": fqn_type_name(np_obj),
+                    "dtype": np_obj.dtype.name,
+                    "data": np_obj.tolist()
+                }
 
         if type(obj) == list or type(obj) == tuple:
             jvs = []
@@ -225,13 +238,13 @@ class Loader:
 
     def __init__(self, path, map_arrays=True):
 
-        self.ext_path = os.path.join(path, "extern")
-
         self.map_arrays = map_arrays
 
-        self.array_store = zarr.open(get_chunk_store(self.ext_path))
+        self.ext_path = os.path.join(path, "extern")
+        if os.path.exists(self.ext_path):
+            self.array_store = zarr.open(get_chunk_store(self.ext_path))
 
-        self.loaded_arrays = set()
+        self.used_arrays = set()
 
     def load(self, obj, json_obj):
 
@@ -254,7 +267,7 @@ class Loader:
                 if not self.map_arrays:
                     json_obj = np.array(json_obj)
 
-                self.loaded_arrays.add(path)
+                self.used_arrays.add(path)
                 # we are lying about this one (actually zarr.core.Array)
                 # in practice it should behave (mostly) like ndarray
                 jt = np.ndarray
@@ -264,14 +277,7 @@ class Loader:
 
         # try to get a dict representation of the object
 
-        attrs = None
-
-        if hasattr(obj, "__dict__"):
-            attrs = obj.__dict__
-        elif hasattr(obj, "__slots__"):
-            attrs = {n: getattr(obj, n) for n in obj.__slots__}
-        elif isinstance(obj, dict):
-            attrs = obj
+        attrs = get_obj_dict(obj)
 
         # now check how we should continue
 
@@ -353,8 +359,6 @@ def save(obj, directory, compressor=None):
     The directory will be created if it not already exists.
     """
 
-    # write to json
-
     os.makedirs(directory, exist_ok=True)
 
     ser = Serializer(directory, compressor=compressor)
@@ -372,18 +376,18 @@ def save(obj, directory, compressor=None):
 
     os.rename(unfinished_path, state_path)
 
-    # remove unused external numpy arrays
+    clean_zarr_store(ser)
 
-    on_disk = set(ser.array_store.keys())
-    unused = on_disk - ser.saved_arrays
 
-    for k in unused:
-        del ser.array_store[k]
+def saves(obj):
+    """
+    Serializes obj to a string represenation.
+    """
 
-        # because zarr does not clean up emtpy folders
-        arr_path = os.path.join(ser.ext_path, k)
-        if os.path.isdir(arr_path):
-            shutil.rmtree(arr_path)
+    ser = Serializer("", externalize=False)
+    rep = ser.serialize(obj)
+
+    return json.dumps(rep)
 
 
 def load(obj, path, map_arrays=True):
@@ -402,15 +406,32 @@ def load(obj, path, map_arrays=True):
     lod = Loader(path, map_arrays)
     lod.load(obj, json_state)
 
-    # remove unused external numpy arrays
+    clean_zarr_store(lod)
 
-    on_disk = set(lod.array_store.keys())
-    unused = on_disk - lod.loaded_arrays
+
+def loads(obj, string):
+    """
+    Updates obj with data store in the given string.
+    """
+
+    json_state = json.loads(string)
+
+    lod = Loader("", map_arrays=False)
+    lod.load(obj, json_state)
+
+
+def clean_zarr_store(o):
+    """
+    Removes unused external zarr arrays form the zarr store.
+    """
+
+    on_disk = set(o.array_store.keys())
+    unused = on_disk - o.used_arrays
 
     for k in unused:
-        del lod.array_store[k]
+        del o.array_store[k]
 
-        # because zarr does not clean up emtpy folders
-        arr_path = os.path.join(lod.ext_path, k)
+        # because zarr does not clean up empy folders
+        arr_path = os.path.join(o.ext_path, k)
         if os.path.isdir(arr_path):
             shutil.rmtree(arr_path)
