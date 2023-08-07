@@ -206,10 +206,15 @@ class Serializer:
         if attrs is None:
             # in case we don't find any serializeable attributes
             # we check if we have a primitive type and return that
-            if isinstance(obj, (numbers.Integral, numbers.Real, str, type(None))):
+            if isinstance(obj, numbers.Integral):
+                return int(obj)
+            if isinstance(obj, numbers.Real):
+                return float(obj)
+            if isinstance(obj, (str, type(None))):
                 return obj
             else:
-                print(f"Warning: cannot save object {key} of type {fqn_type_name(obj)}")
+                path = ".".join([str(p) for p in self.obj_path])
+                print(f"Warning: cannot save object at {path} of type {fqn_type_name(obj)}")
                 return Skip
 
         ser_attrs = {}
