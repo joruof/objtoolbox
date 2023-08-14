@@ -90,10 +90,12 @@ class Serializer:
                  path,
                  hide_private=True,
                  compressor=None,
+                 mmap_arrays=False,
                  externalize=True):
 
         self.hide_private = hide_private
         self.compressor = compressor
+        self.mmap_arrays = mmap_arrays
         self.externalize = externalize
 
         if self.externalize:
@@ -128,10 +130,11 @@ class Serializer:
                         compressor=self.compressor,
                         overwrite=True)
 
-                if type(key) == str:
-                    ext_setattr(parent, key, obj)
-                elif type(key) == int:
-                    parent[key] = obj
+                if self.mmap_arrays:
+                    if type(key) == str:
+                        ext_setattr(parent, key, obj)
+                    elif type(key) == int:
+                        parent[key] = obj
 
                 self.used_arrays.add(path)
                 return {
@@ -160,10 +163,11 @@ class Serializer:
                             compressor=self.compressor,
                             overwrite=True)
 
-                    if type(key) == str:
-                        ext_setattr(parent, key, obj)
-                    elif type(key) == int:
-                        parent[key] = obj
+                    if self.mmap_arrays:
+                        if type(key) == str:
+                            ext_setattr(parent, key, obj)
+                        elif type(key) == int:
+                            parent[key] = obj
 
                 self.used_arrays.add(obj.path)
                 return {
@@ -241,9 +245,9 @@ class Loader:
     External numpy arrays are automatically dereferenced and mem-mapped.
     """
 
-    def __init__(self, path, map_arrays=True):
+    def __init__(self, path, mmap_arrays=True):
 
-        self.map_arrays = map_arrays
+        self.mmap_arrays = mmap_arrays
 
         self.ext_path = os.path.join(path, "extern")
         if os.path.exists(self.ext_path):
@@ -269,7 +273,7 @@ class Loader:
                     json_obj = self.array_store[path]
                 except KeyError:
                     return obj
-                if not self.map_arrays:
+                if not self.mmap_arrays:
                     json_obj = np.array(json_obj)
 
                 self.used_arrays.add(path)
@@ -358,7 +362,12 @@ class Loader:
             return obj
 
 
-def save(obj, directory, compressor=None):
+def save(obj,
+         directory,
+         hide_private=True,
+         compressor=None,
+         mmap_arrays=False,
+         externalize=True):
     """
     Stores obj under a given directory.
     The directory will be created if it not already exists.
@@ -366,7 +375,11 @@ def save(obj, directory, compressor=None):
 
     os.makedirs(directory, exist_ok=True)
 
-    ser = Serializer(directory, compressor=compressor)
+    ser = Serializer(directory,
+                     hide_private=hide_private,
+                     compressor=compressor,
+                     mmap_arrays=mmap_arrays,
+                     externalize=externalize)
     rep = ser.serialize(obj)
 
     if rep is Skip:
@@ -395,7 +408,7 @@ def saves(obj):
     return json.dumps(rep)
 
 
-def load(obj, path, map_arrays=True):
+def load(obj, path, mmap_arrays=False):
     """
     Updates obj with data stored at the given path.
     """
@@ -408,7 +421,7 @@ def load(obj, path, map_arrays=True):
     with open(state_path, "r") as fd:
         json_state = json.load(fd)
 
-    lod = Loader(path, map_arrays)
+    lod = Loader(path, mmap_arrays)
     lod.load(obj, json_state)
 
     clean_zarr_store(lod)
@@ -421,7 +434,7 @@ def loads(obj, string):
 
     json_state = json.loads(string)
 
-    lod = Loader("", map_arrays=False)
+    lod = Loader("", mmap_arrays=False)
     lod.load(obj, json_state)
 
 
