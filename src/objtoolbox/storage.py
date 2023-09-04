@@ -383,7 +383,7 @@ def save(obj,
     rep = ser.serialize(obj)
 
     if rep is Skip:
-        return
+        return False
 
     unfinished_path = os.path.join(directory, "unfinished.json")
 
@@ -395,6 +395,8 @@ def save(obj,
     os.rename(unfinished_path, state_path)
 
     clean_zarr_store(ser)
+
+    return True
 
 
 def saves(obj):
@@ -416,7 +418,7 @@ def load(obj, path, mmap_arrays=False):
     state_path = os.path.join(path, "state.json")
 
     if not os.path.exists(state_path):
-        return
+        return False
 
     with open(state_path, "r") as fd:
         json_state = json.load(fd)
@@ -424,7 +426,7 @@ def load(obj, path, mmap_arrays=False):
     lod = Loader(path, mmap_arrays)
     lod.load(obj, json_state)
 
-    clean_zarr_store(lod)
+    return True
 
 
 def loads(obj, string):
