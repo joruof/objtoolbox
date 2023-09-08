@@ -16,6 +16,7 @@ import types
 import shutil
 import numbers
 import traceback
+import fcntl
 
 # i still like this
 from pydoc import locate
@@ -373,28 +374,41 @@ def save(obj,
     The directory will be created if it not already exists.
     """
 
-    os.makedirs(directory, exist_ok=True)
-
-    ser = Serializer(directory,
-                     hide_private=hide_private,
-                     compressor=compressor,
-                     mmap_arrays=mmap_arrays,
-                     externalize=externalize)
-    rep = ser.serialize(obj)
-
-    if rep is Skip:
-        return False
-
-    unfinished_path = os.path.join(directory, "unfinished.json")
-
-    with open(unfinished_path, "w+") as fd:
-        json.dump(rep, fd, indent=2)
-
     state_path = os.path.join(directory, "state.json")
 
-    os.rename(unfinished_path, state_path)
+    try:
+        state_fd = open(state_path, "r+")
+    except FileNotFoundError:
+        state_fd = None
 
-    clean_zarr_store(ser)
+    try:
+        if state_fd is not None:
+            fcntl.flock(state_fd, fcntl.LOCK_EX)
+
+        os.makedirs(directory, exist_ok=True)
+
+        ser = Serializer(directory,
+                         hide_private=hide_private,
+                         compressor=compressor,
+                         mmap_arrays=mmap_arrays,
+                         externalize=externalize)
+        rep = ser.serialize(obj)
+
+        if rep is Skip:
+            return False
+
+        unfinished_path = os.path.join(directory, "unfinished.json")
+
+        with open(unfinished_path, "w+") as fd:
+            json.dump(rep, fd, indent=2)
+
+        clean_zarr_store(ser)
+
+        os.rename(unfinished_path, state_path)
+    finally:
+        if state_fd is not None:
+            fcntl.flock(state_fd, fcntl.LOCK_UN)
+            state_fd.close()
 
     return True
 
@@ -417,14 +431,21 @@ def load(obj, path, mmap_arrays=False):
 
     state_path = os.path.join(path, "state.json")
 
-    if not os.path.exists(state_path):
+    try:
+        state_fd = open(state_path, "r+")
+    except FileNotFoundError:
         return False
 
-    with open(state_path, "r") as fd:
-        json_state = json.load(fd)
+    try:
+        fcntl.flock(state_fd, fcntl.LOCK_EX)
 
-    lod = Loader(path, mmap_arrays)
-    lod.load(obj, json_state)
+        json_state = json.load(state_fd)
+
+        lod = Loader(path, mmap_arrays)
+        lod.load(obj, json_state)
+    finally:
+        fcntl.flock(state_fd, fcntl.LOCK_UN)
+        state_fd.close()
 
     return True
 
