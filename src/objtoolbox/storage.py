@@ -296,21 +296,31 @@ class Loader:
             # handles general objects and dicts
 
             if hasattr(obj, "__loadstate__"):
-                ld = {k: self.load(None, v) for k, v in json_obj.items()}
+                ld = {}
+                for k, v in json_obj.items():
+                    nv = self.load(None, v)
+                    if nv is not Skip:
+                        ld[k] = nv
                 if "__class__" in ld:
                     del ld["__class__"]
                 obj.__loadstate__(ld)
             elif isinstance(obj, dict) and len(obj) == 0:
                 # if obj is dict-like and empty,
                 # we accept whatever is stored in the json file
-                ld = {k: self.load(None, v) for k, v in json_obj.items()}
+                ld = {}
+                for k, v in json_obj.items():
+                    nv = self.load(None, v)
+                    if nv is not Skip:
+                        ld[k] = nv
                 if "__class__" in ld:
                     del ld["__class__"]
                 obj.update(ld)
             else:
                 for k, v in attrs.items():
                     if k in json_obj:
-                        ext_setattr(obj, k, self.load(v, json_obj[k]))
+                        nv = self.load(v, json_obj[k])
+                        if nv is not Skip:
+                            ext_setattr(obj, k, nv)
             return obj
         elif (t == list or t == tuple) and jt == list:
             # handles lists and tuples
@@ -343,7 +353,8 @@ class Loader:
                     print(f"Warning: skipping init of unknown type {cls_name}")
                     return Skip
             elif jt == list:
-                return [self.load(None, v) for v in json_obj]
+                res = [self.load(None, v) for v in json_obj]
+                return [v for v in res if v is not Skip]
             else:
                 # just use whatever is contained in json
                 return json_obj
