@@ -3,10 +3,12 @@ class bundle(dict):
     A dict, which allows dot notation access.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __new__(cls, *args, **kwargs):
 
-        dict.__init__(self, *args, **kwargs)
+        self = super(bundle, cls).__new__(cls, *args, **kwargs)
         self.__dict__ = self
+
+        return self
 
 
 def get_value_by_path(obj, path):
