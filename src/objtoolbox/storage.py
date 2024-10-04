@@ -199,14 +199,14 @@ class Serializer:
 
         if isinstance(obj, dict):
             attrs = obj
-        elif hasattr(obj, "__dict__"):
-            attrs = obj.__dict__
-        elif hasattr(obj, "__slots__"):
-            attrs = {n: getattr(obj, n) for n in obj.__slots__}
         elif hasattr(obj, "__savestate__"):
             attrs = obj.__savestate__()
         elif hasattr(obj, "__getstate__"):
             attrs = obj.__getstate__()
+        elif hasattr(obj, "__dict__"):
+            attrs = obj.__dict__
+        elif hasattr(obj, "__slots__"):
+            attrs = {n: getattr(obj, n) for n in obj.__slots__}
 
         if attrs is None:
             # in case we don't find any serializeable attributes
