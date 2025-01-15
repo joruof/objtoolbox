@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "objtoolbox"
-version = "0.0.11"
+version = "0.0.12"
 authors = [
   { name="Jona Ruof", email="jona.ruof@uni-ulm.de" },
 ]
@@ -16,7 +16,7 @@ classifiers = [
 ]
 dependencies = [
     'numpy>=1.20',
-    'zarr>=2.14.2',
+    'zarr>=3.0.0',
 ]
 
 [project.urls]

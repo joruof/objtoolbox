@@ -75,7 +75,7 @@ def get_chunk_store(path):
     try:
         chunk_store = ZARR_CHUNK_STORES[path]
     except KeyError:
-        chunk_store = zarr.DirectoryStore(path)
+        chunk_store = zarr.LocalStore(path)
         ZARR_CHUNK_STORES[path] = chunk_store
 
     return chunk_store
