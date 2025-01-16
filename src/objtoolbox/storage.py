@@ -27,39 +27,6 @@ import numpy as np
 from objtoolbox import ext_setattr, get_obj_dict, fqn_type_name
 
 
-def patch_zarr_indexing():
-    """
-    Evil, dark-magic, monkey-patching to make zarr array indexing
-    behave even more like numpy indexing.
-    Will hopefully become unnecessary in future zarr versions.
-    """
-
-    original_getitem = zarr.Array.__getitem__
-    original_setitem = zarr.Array.__setitem__
-
-    def new_getitem(self, selection):
-
-        try:
-            val = original_getitem(self, selection)
-        except IndexError:
-            val = self.oindex[selection]
-
-        return val
-
-    def new_setitem(self, selection, values):
-
-        try:
-            original_setitem(self, selection, values)
-        except IndexError:
-            self.oindex[selection] = values
-
-    zarr.Array.__getitem__ = new_getitem
-    zarr.Array.__setitem__ = new_setitem
-
-
-patch_zarr_indexing()
-
-
 class Skip:
     """
     This signals that a value should not be serialized (only used internally).
@@ -150,7 +117,7 @@ class Serializer:
                 }
 
         # already saved arrays
-        if type(obj) == zarr.core.Array:
+        if type(obj) == zarr.Array:
             if self.externalize:
                 path = ".".join([str(p) for p in self.obj_path])
 
@@ -278,7 +245,7 @@ class Loader:
                     json_obj = np.array(json_obj)
 
                 self.used_arrays.add(path)
-                # we are lying about this one (actually zarr.core.Array)
+                # we are lying about this one (actually zarr.Array)
                 # in practice it should behave (mostly) like ndarray
                 jt = np.ndarray
             elif cls == "numpy.ndarray":
