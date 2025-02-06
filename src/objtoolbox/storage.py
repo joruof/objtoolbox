@@ -91,12 +91,14 @@ class Serializer:
             if obj.size > 25 and self.externalize:
 
                 path = ".".join([str(p) for p in self.obj_path])
-                obj = self.array_store.array(
-                        path,
-                        obj,
-                        chunks=False,
+
+                arr = self.array_store.empty_like(
+                        name=path,
+                        data=obj,
                         compressor=self.compressor,
                         overwrite=True)
+                arr[:] = obj
+                obj = arr
 
                 if self.mmap_arrays:
                     if type(key) == str:
@@ -124,12 +126,13 @@ class Serializer:
                 if (self.array_store.store.path != obj.store.path
                         or obj.path != path):
 
-                    obj = self.array_store.array(
-                            path,
-                            obj,
-                            chunks=False,
+                    arr = self.array_store.empty_like(
+                            name=path,
+                            data=obj,
                             compressor=self.compressor,
                             overwrite=True)
+                    arr[:] = obj
+                    obj = arr
 
                     if self.mmap_arrays:
                         if type(key) == str:
