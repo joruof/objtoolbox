@@ -21,7 +21,6 @@ import fcntl
 # i still like this
 from pydoc import locate
 
-import zarr
 import numpy as np
 
 from objtoolbox import ext_setattr, get_obj_dict, fqn_type_name
@@ -34,20 +33,6 @@ class Skip:
     pass
 
 
-ZARR_CHUNK_STORES = {}
-
-
-def get_chunk_store(path):
-
-    try:
-        chunk_store = ZARR_CHUNK_STORES[path]
-    except KeyError:
-        chunk_store = zarr.storage.LocalStore(path)
-        ZARR_CHUNK_STORES[path] = chunk_store
-
-    return chunk_store
-
-
 class Serializer:
     """
     Converts an object tree into a json serializeable object tree.
@@ -57,18 +42,16 @@ class Serializer:
     def __init__(self,
                  path,
                  hide_private=True,
-                 compressor=None,
                  mmap_arrays=False,
                  externalize=True):
 
         self.hide_private = hide_private
-        self.compressor = compressor
         self.mmap_arrays = mmap_arrays
         self.externalize = externalize
 
         if self.externalize:
             self.ext_path = os.path.join(path, "extern")
-            self.array_store = zarr.open(get_chunk_store(self.ext_path))
+            os.makedirs(self.ext_path, exist_ok=True)
 
         self.used_arrays = set()
 
@@ -91,22 +74,18 @@ class Serializer:
             if obj.size > 25 and self.externalize:
 
                 path = ".".join([str(p) for p in self.obj_path])
+                file_path = os.path.join(self.ext_path, path) + ".npy"
 
-                arr = self.array_store.empty_like(
-                        name=path,
-                        data=obj,
-                        compressor=self.compressor,
-                        overwrite=True)
-                arr[:] = obj
-                obj = arr
+                np.save(file_path, obj)
 
                 if self.mmap_arrays:
+                    obj = np.load(file_path, "r+")
                     if type(key) == str:
                         ext_setattr(parent, key, obj)
                     elif type(key) == int:
                         parent[key] = obj
 
-                self.used_arrays.add(path)
+                self.used_arrays.add(path + ".npy")
                 return {
                     "__class__": "__extern__",
                     "path": path
@@ -118,32 +97,29 @@ class Serializer:
                     "data": obj.tolist()
                 }
 
-        # already saved arrays
-        if type(obj) == zarr.Array:
+        # memory mapped arrays
+        if type(obj) == np.memmap:
             if self.externalize:
                 path = ".".join([str(p) for p in self.obj_path])
+                file_path = os.path.join(self.ext_path, path) + ".npy"
 
-                if (self.array_store.store.path != obj.store.path
-                        or obj.path != path):
+                # only save if the memory mapping points to a different file
+                if (os.path.abspath(os.path.realpath(file_path))
+                    != os.path.abspath(os.path.realpath(obj.filename))):
 
-                    arr = self.array_store.empty_like(
-                            name=path,
-                            data=obj,
-                            compressor=self.compressor,
-                            overwrite=True)
-                    arr[:] = obj
-                    obj = arr
+                    np.save(file_path, obj)
 
                     if self.mmap_arrays:
+                        obj = np.load(file_path, "r+")
                         if type(key) == str:
                             ext_setattr(parent, key, obj)
                         elif type(key) == int:
                             parent[key] = obj
 
-                self.used_arrays.add(obj.path)
+                self.used_arrays.add(path + ".npy")
                 return {
                     "__class__": "__extern__",
-                    "path": obj.path
+                    "path": path
                 }
             else:
                 np_obj = np.array(obj)
@@ -221,8 +197,6 @@ class Loader:
         self.mmap_arrays = mmap_arrays
 
         self.ext_path = os.path.join(path, "extern")
-        if os.path.exists(self.ext_path):
-            self.array_store = zarr.open(get_chunk_store(self.ext_path))
 
         self.used_arrays = set()
 
@@ -240,16 +214,12 @@ class Loader:
 
             if cls == "__extern__":
                 path = json_obj["path"]
+                file_path = os.path.join(self.ext_path, path) + ".npy"
                 try:
-                    json_obj = self.array_store[path]
+                    json_obj = np.load(file_path, "r+" if self.mmap_arrays else None)
                 except KeyError:
-                    return obj
-                if not self.mmap_arrays:
-                    json_obj = np.array(json_obj)
-
-                self.used_arrays.add(path)
-                # we are lying about this one (actually zarr.Array)
-                # in practice it should behave (mostly) like ndarray
+                    return None
+                self.used_arrays.add(path + ".npy")
                 jt = np.ndarray
             elif cls == "numpy.ndarray":
                 json_obj = np.array(json_obj["data"], dtype=json_obj["dtype"])
@@ -347,7 +317,6 @@ class Loader:
 def save(obj,
          directory,
          hide_private=True,
-         compressor=None,
          mmap_arrays=False,
          externalize=True):
     """
@@ -370,7 +339,6 @@ def save(obj,
 
         ser = Serializer(directory,
                          hide_private=hide_private,
-                         compressor=compressor,
                          mmap_arrays=mmap_arrays,
                          externalize=externalize)
         rep = ser.serialize(obj)
@@ -383,7 +351,7 @@ def save(obj,
         with open(unfinished_path, "w+") as fd:
             json.dump(rep, fd, indent=2)
 
-        clean_zarr_store(ser)
+        clean_array_store(ser)
 
         os.rename(unfinished_path, state_path)
     finally:
@@ -442,18 +410,13 @@ def loads(obj, string):
     lod.load(obj, json_state)
 
 
-def clean_zarr_store(o):
+def clean_array_store(o):
     """
-    Removes unused external zarr arrays form the zarr store.
+    Removes unused external arrays form the array store.
     """
 
-    on_disk = set(o.array_store.keys())
+    on_disk = set(os.listdir(o.ext_path))
     unused = on_disk - o.used_arrays
 
     for k in unused:
-        del o.array_store[k]
-
-        # because zarr does not clean up empy folders
-        arr_path = os.path.join(o.ext_path, k)
-        if os.path.isdir(arr_path):
-            shutil.rmtree(arr_path)
+        os.remove(os.path.abspath(os.path.join(o.ext_path, k)))
